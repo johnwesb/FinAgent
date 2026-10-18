@@ -12,7 +12,7 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
-  const body = (await req.json()) as {
+  const body = (await req.json().catch(() => ({}))) as {
     tenant?: string;
     kind?: string;
     text?: string;

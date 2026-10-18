@@ -77,7 +77,9 @@ export function GraphViz({
         );
       })}
       {nodes.map((n) => {
-        const p = positioned.get(n.key);
+        // key-less nodes (legacy Quote rows) share a null key — skip them
+        // instead of rendering duplicate React children.
+        const p = n.key ? positioned.get(n.key) : undefined;
         if (!p) return null;
         const isSel = selected === n.key;
         const main = n.label === "Company";

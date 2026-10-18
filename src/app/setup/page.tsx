@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import {
   Check,
   CircleDashed,
@@ -98,7 +99,9 @@ function Checklist() {
         {
           label: "Real-time market feed",
           ok: stats.data.market.live ? true : null,
-          detail: stats.data.market.live ? "stooq delayed quotes" : "simulated feed (network blocked)",
+          detail: stats.data.market.live
+            ? `${stats.data.market.source === "yahoo-delayed" ? "yahoo finance" : "stooq"} delayed quotes`
+            : "simulated feed (network blocked)",
         },
       ]
     : [{ label: "Probing…", ok: null, detail: "" }];
@@ -170,18 +173,18 @@ export default function SetupPage() {
           <p className="mt-2">
             Re-installing over an older build? Drop legacy tables first, then push:
           </p>
-          <Code>{`psql $DATABASE_URL -c "DROP TABLE IF EXISTS agents,missions,tasks,events,settings,chat_sessions,chat_messages,graph_nodes,graph_edges CASCADE;"`}</Code>
+          <Code>{`psql $DATABASE_URL -c "DROP TABLE IF EXISTS agents, events, settings, chat_sessions, chat_messages, graph_nodes, graph_edges CASCADE;"`}</Code>
         </Step>
 
         <Step n="06" title="Start the platform">
           <Code>{`# development\nnpm run dev\n\n# production\nnpm run build && npm start`}</Code>
-          <p className="mt-2">Open <a href="/" style={{ color: "var(--acid)" }}>http://localhost:3000</a> — the desk seeds itself on first request: 6 agents, 20 companies, the supply web, the org brain, and desk procedures (≈51 nodes, 115+ edges).</p>
+          <p className="mt-2">Open <Link href="/" style={{ color: "var(--acid)" }}>http://localhost:3000</Link> — the desk seeds itself on first request: 6 agents, 20 companies, the supply web, the org brain, and desk procedures (51 nodes · 111 edges — the graph keeps growing from there: quotes, conversations, positions).</p>
         </Step>
 
         <Step n="07" title="FalkorDB is the mind — production server">
-          <p>FalkorDB is the desk&apos;s mind, not an optional extra. At first boot the platform <b>auto-provisions a real embedded FalkorDB engine</b> (FalkorDBLite — bundled server binary, persisted to <code className="mono" style={{ color: "var(--acid)" }}>.data/falkordb</code>) so every byte of graph state — companies, memory, brain — is Cypher on a real engine from minute one. For a shared/production desk, run the full server and it takes priority automatically:</p>
+          <p>FalkorDB is the desk&apos;s mind, not an optional extra. At first boot the platform runs a boot ladder — configured server → <b>auto-booted embedded real FalkorDB engine</b> (FalkorDBLite — bundled server binary, persisted to <code className="mono" style={{ color: "var(--acid)" }}>.data/falkordb</code>) → clearly-labelled <b>DEGRADED</b> compat store — so you always know which graph runtime you are on. The embedded level needs a redis binary (<code className="mono">./scripts/bootstrap-falkordb.sh</code> on Linux x86_64, <code className="mono">brew install redis</code> on macOS); if it cannot start, the desk says so and keeps working. For a shared/production desk, run the full server and it takes priority automatically:</p>
           <Code>docker run -p 6379:6379 -it --rm falkordb/falkordb:latest</Code>
-          <p className="mt-2">Save <code className="mono" style={{ color: "var(--acid)" }}>redis://localhost:6379</code> in <a href="/settings" style={{ color: "var(--acid)" }}>Settings</a> (persists + auto re-probes). Status bar flips to <Chip tone="acid">FALKORDB LIVE</Chip>. Verify raw:</p>
+          <p className="mt-2">Save <code className="mono" style={{ color: "var(--acid)" }}>redis://localhost:6379</code> in <Link href="/settings" style={{ color: "var(--acid)" }}>Settings</Link> (persists + auto re-probes). Status bar flips to <Chip tone="acid">FALKORDB LIVE</Chip>. Verify raw:</p>
           <Code>{`redis-cli GRAPH.QUERY finq "MATCH (n) RETURN head(labels(n)), count(n)"`}</Code>
           <p className="mt-2">Graph name is <b>finq</b>. After connecting a production server, use Settings → <i>Burn &amp; reseed desk</i> to repopulate it. The <b>DEGRADED</b> Postgres compat store only engages if no real engine can run at all — and says so loudly.</p>
         </Step>
@@ -198,7 +201,7 @@ export default function SetupPage() {
         </Step>
 
         <Step n="10" title="Attach MCP clients">
-          <p>Stateless JSON-RPC endpoint — 16 graph/market/memory tools, per-tenant via header:</p>
+          <p>Stateless JSON-RPC endpoint — 22 tools (market, graph, positions, brain, memory), per-tenant via header:</p>
           <Code>{`curl -X POST http://localhost:3000/api/mcp \\\n  -H 'Content-Type: application/json' \\\n  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'`}</Code>
           <Code>{`curl -X POST http://localhost:3000/api/mcp \\\n  -H 'Content-Type: application/json' -H 'x-tenant: desk-1' \\\n  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"graph_risk_paths","arguments":{"ticker":"TSM"}}}'`}</Code>
         </Step>
@@ -215,9 +218,9 @@ export default function SetupPage() {
         <Step n="12" title="Reset & troubleshoot">
           <div className="flex flex-col gap-2">
             <div className="panel-inset px-3 py-2"><b>Reset:</b> Settings → <i>Burn &amp; reseed desk</i> / <i>Purge everything</i>, or <code className="mono" style={{ color: "var(--acid)" }}>{`POST /api/admin {"mode":"reseed"}`}</code></div>
-            <div className="panel-inset px-3 py-2"><b>Amber FALKORDB:</b> container not up — step 07. Everything keeps working in embedded mode.</div>
+            <div className="panel-inset px-3 py-2"><b>DEGRADED (red):</b> no graph engine could start — the inline error says why (missing redis binary / container down — step 07). Everything keeps working on the labelled compat store meanwhile.</div>
             <div className="panel-inset px-3 py-2"><b>LLM OFF:</b> Ollama not running — deterministic policy router carries the desk.</div>
-            <div className="panel-inset px-3 py-2"><b>Simulated quotes:</b> outbound network to stooq blocked — feed is labeled, never silent.</div>
+            <div className="panel-inset px-3 py-2"><b>Quote sources:</b> chain is stooq → yahoo finance → simulated. Each quote is stamped with its actual origin — a simulated price is never labeled as live.</div>
             <div className="panel-inset px-3 py-2"><b>Health:</b> <code className="mono" style={{ color: "var(--acid)" }}>curl localhost:3000/api/health</code> → <code className="mono">{"{\"ok\":true}"}</code></div>
           </div>
         </Step>

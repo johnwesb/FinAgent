@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import {
   ArrowUpRight,
   Database,
@@ -9,7 +10,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { api, fmtClock, usePoll, type EventDTO, type MessageDTO, type SessionDTO, type StatsDTO } from "@/lib/client";
+import { api, fmtClock, useLocalState, usePoll, type EventDTO, type MessageDTO, type SessionDTO, type StatsDTO } from "@/lib/client";
 import { Empty, Panel } from "@/components/ui";
 import { Markdown } from "@/components/markdown";
 import { AGENT_ICONS, EVENT_KIND_COLORS } from "@/lib/meta";
@@ -25,24 +26,29 @@ const SUGGESTED = [
   "Remember that our Nvidia stop-loss is 8% below cost basis.",
 ];
 
+/** poll returns a fresh array each tick — keep the old reference when
+ *  nothing actually changed so dependent effects don't re-fire. */
+function sameMessages(a: MessageDTO[], b: MessageDTO[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every(
+    (m, i) => m.id === b[i].id && m.role === b[i].role && m.content === b[i].content,
+  );
+}
+
 export default function ConsolePage() {
-  const [tenant, setTenant] = useState("desk-1");
+  const [tenant, setTenant] = useLocalState("finq-tenant", "desk-1");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [messages, setMessages] = useState<MessageDTO[]>([]);
   const [input, setInput] = useState("");
   const [pending, setPending] = useState<{ runId: string; events: EventDTO[] } | null>(null);
   const afterRef = useRef(0);
   const streamRef = useRef<HTMLDivElement>(null);
+  /** auto-follow only while the user is parked near the bottom */
+  const stickRef = useRef(true);
   const [error, setError] = useState<string | null>(null);
 
-  // restore tenant
-  useEffect(() => {
-    const t = window.localStorage.getItem("finq-tenant");
-    if (t) setTenant(t);
-  }, []);
   const setTenantPersist = (t: string) => {
     setTenant(t);
-    window.localStorage.setItem("finq-tenant", t);
     setSessionId(null);
     setMessages([]);
   };
@@ -61,7 +67,7 @@ export default function ConsolePage() {
     const load = async () => {
       try {
         const d = await api<{ messages: MessageDTO[] }>(`/api/chat/${sessionId}`);
-        if (alive) setMessages(d.messages);
+        if (alive) setMessages((prev) => (sameMessages(prev, d.messages) ? prev : d.messages));
       } catch {
         /* transient */
       }
@@ -112,15 +118,31 @@ export default function ConsolePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pending?.runId, sessionId]);
 
-  // autoscroll
+  // track stick-to-bottom: scrolling up pauses auto-follow so history
+  // stays readable; scrolling back to the tail resumes it. A new session
+  // always starts pinned to the latest message.
+  useEffect(() => {
+    stickRef.current = true;
+    const el = streamRef.current;
+    if (!el) return;
+    const onScroll = () => {
+      stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
+    };
+    onScroll();
+    el.addEventListener("scroll", onScroll, { passive: true });
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [sessionId]);
+
+  // autoscroll — only while the user is parked at the bottom
   useEffect(() => {
     const el = streamRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+    if (el && stickRef.current) el.scrollTop = el.scrollHeight;
   }, [messages, pending?.events?.length]);
 
   async function send(text?: string) {
     const question = (text ?? input).trim();
     if (!question || pending) return;
+    stickRef.current = true; // sending always jumps to the live tail
     setError(null);
     setInput("");
     try {
@@ -352,7 +374,7 @@ export default function ConsolePage() {
                     stats.data?.graph.mode === "embedded" ? "var(--red)" : "var(--acid)",
                   ],
                 ["Graph size", stats.data ? `${stats.data.graph.nodes} nodes · ${stats.data.graph.edges} edges` : "…", "var(--txt)"],
-                ["Market feed", stats.data?.market.live ? "stooq delayed" : "simulated", stats.data?.market.live ? "var(--cyan)" : "var(--amber)"],
+                ["Market feed", stats.data?.market.live ? (stats.data?.market.source === "yahoo-delayed" ? "yahoo delayed" : "stooq delayed") : "simulated", stats.data?.market.live ? "var(--cyan)" : "var(--amber)"],
                 ["LLM router", stats.data?.ollama.up ? `online · ${stats.data.ollama.models} models` : "offline · policy router", stats.data?.ollama.up ? "var(--acid)" : "var(--dim)"],
                 ["Threads", String(stats.data?.sessions ?? "—"), "var(--txt)"],
                 ["Messages", String(stats.data?.messages ?? "—"), "var(--txt)"],
@@ -387,9 +409,9 @@ export default function ConsolePage() {
               <p>People, teams, projects, docs, decisions — every answer with sources and provenance.</p>
             </div>
           </div>
-          <a href="/brain" className="btn mt-4 w-full justify-center" style={{ padding: "8px" }}>
+          <Link href="/brain" className="btn mt-4 w-full justify-center" style={{ padding: "8px" }}>
             Open the brain <ArrowUpRight size={11} />
-          </a>
+          </Link>
         </Panel>
       </div>
     </div>

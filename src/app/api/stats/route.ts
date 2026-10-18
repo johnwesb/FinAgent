@@ -9,7 +9,7 @@ import { marketStatus } from "@/lib/market";
 export const dynamic = "force-dynamic";
 
 const g = globalThis as typeof globalThis & {
-  __marketCache?: { at: number; live: boolean };
+  __marketCache?: { at: number; live: boolean; source?: string };
 };
 
 export async function GET() {
@@ -27,7 +27,7 @@ export async function GET() {
   const base = await getOllamaBase();
   if (!g.__marketCache || Date.now() - g.__marketCache.at > 20_000) {
     const ms = await marketStatus();
-    g.__marketCache = { at: Date.now(), live: ms.live };
+    g.__marketCache = { at: Date.now(), live: ms.live, source: ms.source };
   }
   return Response.json({
     agents: a?.n ?? 0,
@@ -42,6 +42,6 @@ export async function GET() {
       byLabel: overview.data.byLabel,
     },
     ollama: { up: ollama.up, models: ollama.models.length, base },
-    market: { live: g.__marketCache.live },
+    market: { live: g.__marketCache.live, source: g.__marketCache.source },
   });
 }

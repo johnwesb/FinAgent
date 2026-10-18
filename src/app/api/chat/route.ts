@@ -21,7 +21,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   await ensureSeed();
-  const body = (await req.json()) as {
+  const body = (await req.json().catch(() => ({}))) as {
     question?: string;
     tenant?: string;
     sessionId?: number;

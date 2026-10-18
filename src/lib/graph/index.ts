@@ -30,11 +30,11 @@ interface DriverState {
   url: string;
   error?: string;
   checkedAt: number;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   client: any | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   graph: any | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+   
   lite: any | null;
   booting: boolean;
 }
@@ -79,7 +79,7 @@ async function tryRemote(): Promise<boolean> {
     const client = (await Promise.race([
       connect,
       new Promise((_, rej) => setTimeout(() => rej(new Error("connect timeout")), 2000)),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
     ])) as any;
     const graph = client.selectGraph(GRAPH_NAME);
     await Promise.race([
@@ -101,6 +101,17 @@ async function tryRemote(): Promise<boolean> {
 /** Auto-provision a REAL FalkorDB engine in-process (bundled server binary). */
 async function tryLite(): Promise<boolean> {
   try {
+    // Reattach to an engine we already booted. demote() clears client/graph
+    // but leaves lite running; reopening here used to spawn a fresh redis
+    // process on every demote→boot cycle and orphan the previous one.
+    if (state.lite?.isRunning) {
+      state.client = state.lite;
+      state.graph = state.lite.selectGraph(GRAPH_NAME);
+      state.mode = "falkordb-lite";
+      state.url = `unix://${state.lite.socketPath}`;
+      state.error = undefined;
+      return true;
+    }
     const mod = await import("falkordblite");
     const dir = `${process.cwd()}/.data/falkordb`;
     // Prefer the vendored portable Redis 8 (scripts/bootstrap-falkordb.sh);
@@ -118,8 +129,16 @@ async function tryLite(): Promise<boolean> {
       new Promise((_, rej) =>
         setTimeout(() => rej(new Error("lite boot timeout")), 65_000),
       ),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+       
     ]) as any;
+    // The engine is an EventEmitter: if its redis dies (OOM, manual kill,
+    // machine sleep) an 'error' with no listener takes the whole server down.
+    // Log it instead — ensureChecked() sees isRunning === false and re-boots.
+    if (typeof lite.on === "function") {
+      lite.on("error", (e: unknown) => {
+        console.error("[falkordb-lite] engine error:", e instanceof Error ? e.message : e);
+      });
+    }
     state.lite = lite;
     state.client = lite;
     state.graph = lite.selectGraph(GRAPH_NAME);
@@ -195,7 +214,7 @@ export async function graphStatus(): Promise<{
 
 /* ----------------------------- queries ----------------------------- */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ 
 function normalize(res: any): unknown[] {
   const data = res?.data ?? [];
   if (!Array.isArray(data)) return [];
@@ -217,8 +236,33 @@ function normalize(res: any): unknown[] {
 
 /** Raw cypher against the live engine (internal use + composites). */
 async function cypher(text: string, params: Params): Promise<unknown[]> {
-  const res = await state.graph.query(text, { params });
+  const res = await state.graph.query(text, { params: sanitizeParams(params) });
   return normalize(res);
+}
+
+/** The falkordb client throws on `undefined` param values (its stringifier
+ *  has no undefined case), which used to demote the whole driver mid-call —
+ *  drop undefined keys (and coerce undefined inside arrays/objects) first. */
+function cleanParam(v: unknown): unknown {
+  if (v === null || typeof v !== "object") return v === undefined ? undefined : v;
+  if (Array.isArray(v)) return v.map((x) => (x === undefined ? null : cleanParam(x)));
+  const out: Record<string, unknown> = {};
+  for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+    if (val === undefined) continue;
+    const c = cleanParam(val);
+    if (c !== undefined) out[k] = c;
+  }
+  return out;
+}
+
+function sanitizeParams(p: Params): Params {
+  const out: Params = {};
+  for (const [k, v] of Object.entries(p)) {
+    if (v === undefined) continue;
+    const c = cleanParam(v);
+    if (c !== undefined) out[k] = c;
+  }
+  return out;
 }
 
 const hasLiveEngine = () => state.mode !== "embedded" && !!state.graph;
@@ -246,7 +290,11 @@ export async function graphRun<T = unknown>(
       if (op === "graphOverview") return { mode: state.mode, data: (await liveOverview()) as T };
       const { text, params: cyp } = entry.cypher(params);
       const rows = await cypher(text, cyp);
-      return { mode: state.mode, data: rows as T };
+      // Ops whose embedded contract is a single object (or null for a miss),
+      // not a row array — without this unwrap consumers read `.name` off an
+      // array and render "undefined", and explore crashes the graph page.
+      const data = SINGLE_ROW_OPS.has(op) ? (((rows[0] ?? null) as T)) : (rows as T);
+      return { mode: state.mode, data };
     } catch (e) {
       state.error = `live engine error: ${e instanceof Error ? e.message : "unknown"} — degraded`;
       demote();
@@ -256,6 +304,14 @@ export async function graphRun<T = unknown>(
   const data = (await entry.embedded(params, embeddedStore)) as T;
   return { mode: "embedded", data };
 }
+
+/** CATALOG ops whose embedded impl returns one object, not an array. */
+const SINGLE_ROW_OPS = new Set([
+  "companyProfile",
+  "putMemory",
+  "putEpisode",
+  "exploreNeighborhood",
+]);
 
 /* ---------- composite write ops (multi-statement on real engines) ---------- */
 
@@ -304,8 +360,17 @@ async function compositeDecision(p: Params): Promise<unknown> {
       linked.push(ticker);
     }
   }
-  // provenance via primitives only — no raw cypher inside composites
-  const sources = (p.sources as string[] | undefined) ?? [];
+  // provenance via primitives only — no raw cypher inside composites.
+  // accept an array or a comma-separated string of document titles.
+  const rawSources = p.sources;
+  const sources = Array.isArray(rawSources)
+    ? rawSources.map(String)
+    : rawSources
+      ? String(rawSources)
+          .split(",")
+          .map((t) => t.trim())
+          .filter(Boolean)
+      : [];
   if (sources.length) {
     const docs = (await graphRun<{ key: string; name: string }[]>(
       "allByLabel",
@@ -369,6 +434,35 @@ async function liveOverview(): Promise<unknown> {
 
 export function driverMode(): GraphMode {
   return state.mode;
+}
+
+/**
+ * Force the boot ladder to re-run — called when the endpoint changes in
+ * Settings. Without this a healthy (or merely reachable) engine keeps its
+ * old connection forever and a newly saved URL is never dialed.
+ */
+export async function forceRecheck(nextUrl?: string): Promise<void> {
+  const changed = nextUrl !== undefined && nextUrl !== state.url;
+  if (!changed) {
+    state.checkedAt = 0;
+    return;
+  }
+  try {
+    await state.lite?.close?.();
+  } catch {
+    /* best-effort teardown */
+  }
+  try {
+    await state.client?.close?.();
+  } catch {
+    /* best-effort teardown */
+  }
+  state.client = null;
+  state.graph = null;
+  state.lite = null;
+  state.mode = "embedded";
+  state.checkedAt = 0;
+  await boot();
 }
 
 /** Wipe the knowledge graph everywhere — live engine AND compat store. */

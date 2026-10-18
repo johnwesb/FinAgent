@@ -6,7 +6,10 @@
  *   finq status                              desk, graph, market, llm status
  *   finq ask "<question>" [--tenant desk-1]  run the multi-agent desk, print the answer
  *   finq quote AAPL [MSFT …]                 real-time quotes (+graph persistence)
+ *   finq quote "Adani Power"                 company names resolve to real symbols too
  *   finq history AAPL [--days 60]            close history sparkline
+ *   finq news NVDA                           headlines for a ticker
+ *   finq position [add N Q C | list | risk]  your book: set, mark, stress
  *   finq brain                               org + decisions + documents
  *   finq ingest "<title>" "<body>"           write a document into the graph
  *   finq decide "<title>" "<rationale>" [--by "Mira Chen"] [--sources "Memo A, Memo B"]
@@ -28,6 +31,8 @@ const dim = c("2");
 const acid = c("38;5;148");
 const cyan = c("36");
 const violet = c("38;5;141");
+const CUR_SYM = { USD: "$", INR: "₹", EUR: "€", GBP: "£", JPY: "¥", HKD: "HK$", CNY: "CN¥", KRW: "₩", AUD: "A$", CAD: "C$", SGD: "S$", TWD: "NT$" };
+const money = (n, cur) => `${CUR_SYM[String(cur || "USD").toUpperCase()] ?? String(cur || "USD") + " "}${Number(n).toLocaleString("en-US", { maximumFractionDigits: 2 })}`;
 const amber = c("38;5;214");
 const red = c("31");
 const grey = c("90");
@@ -99,7 +104,8 @@ async function main() {
           (s.graph.error ? dim(` · ${s.graph.error}`) : ""),
       );
       console.log(`  graph size ${acid(`${s.graph.nodes} nodes · ${s.graph.edges} edges`)} ${dim(Object.entries(s.graph.byLabel).map(([k, v]) => `${k}:${v}`).join(" "))}`);
-      console.log(`  market    ${s.market.live ? cyan("stooq delayed feed") : amber("simulated feed")}`);
+      const feed = s.market.source || (s.market.live ? "stooq-delayed" : "simulated");
+      console.log(`  market    ${feed === "simulated" ? amber("simulated feed") : cyan(feed.replace(/-/g, " ") + " feed")}`);
       console.log(`  llm       ${s.ollama.up ? acid(`online · ${s.ollama.models} models`) : grey("offline — policy router engaged")}`);
       console.log(`  desk      ${s.agents} agents · ${s.sessions} threads · ${s.messages} messages`);
       break;
@@ -131,14 +137,16 @@ async function main() {
     }
 
     case "quote": {
-      const tickers = positional.slice(1).map((t) => t.toUpperCase());
-      if (!tickers.length) fail("usage: finq quote AAPL [MSFT …]");
-      const r = await mcp("get_quote", { tickers });
+      const rest = positional.slice(1);
+      if (!rest.length) fail('usage: finq quote AAPL [MSFT …] or finq quote "Adani Power"');
+      // ALL-CAPS args are tickers; anything else is treated as a company name
+      const inputs = rest.every((t) => t === t.toUpperCase()) ? rest : [rest.join(" ")];
+      const r = await mcp("get_quote", { tickers: inputs });
       const quotes = r.data || [];
       for (const q of quotes) {
         const dir = q.changePct >= 0 ? acid("▲") : red("▼");
         console.log(
-          `  ${bold(q.ticker.padEnd(6))} $${String(q.price).padEnd(10)} ${dir} ${Math.abs(q.changePct).toFixed(2)}%  ${grey(q.source)}`,
+          `  ${bold(q.ticker.padEnd(6))} ${money(q.price, q.currency).padEnd(10)} ${dir} ${Math.abs(q.changePct).toFixed(2)}%  ${grey(q.source)}`,
         );
       }
       console.log(dim(`  persisted to graph as Quote nodes (${r.summary})`));
@@ -146,13 +154,62 @@ async function main() {
     }
 
     case "history": {
-      const t = (positional[1] || "").toUpperCase();
-      if (!t) fail("usage: finq history AAPL [--days 60]");
+      const t = positional.slice(1).join(" ").trim();
+      if (!t) fail('usage: finq history AAPL [--days 60] or finq history "Adani Power"');
       const r = await mcp("get_history", { ticker: t, days: Number(flags.days || 60) });
-      console.log(`  ${bold(t)} ${grey(r.data.source)}`);
+      const sym = r.data.ticker || t.toUpperCase();
+      console.log(`  ${bold(sym)} ${grey(r.data.source)}`);
       console.log(`  ${acid(spark(r.data.points))}`);
       const pts = r.data.points;
-      console.log(dim(`  ${pts[0].date}: ${pts[0].close} → ${pts[pts.length - 1].date}: ${pts[pts.length - 1].close}`));
+      console.log(
+        dim(
+          `  ${pts[0].date}: ${money(pts[0].close, r.data.currency)} → ${pts[pts.length - 1].date}: ${money(pts[pts.length - 1].close, r.data.currency)}`,
+        ),
+      );
+      break;
+    }
+
+    case "news": {
+      const t = positional.slice(1).join(" ").trim();
+      if (!t) fail("usage: finq news NVDA");
+      const r = await mcp("get_news", { ticker: t, limit: 8 });
+      const items = r.data || [];
+      if (!items.length) {
+        console.log(dim(`  no headlines (${r.summary})`));
+        break;
+      }
+      for (const n of items) {
+        console.log(`  ${cyan(new Date(Number(n.ts)).toISOString().slice(0, 10))} ${bold(String(n.title).slice(0, 90))}`);
+        console.log(dim(`    ${n.publisher} · ${n.url}`));
+      }
+      break;
+    }
+
+    case "position": {
+      const sub = positional[1];
+      if (sub === "add") {
+        const [ticker, qty, avgCost] = positional.slice(2);
+        if (!ticker || qty === undefined || avgCost === undefined)
+          fail("usage: finq position add NVDA 100 120.50 [--note \"core\"]");
+        const r = await mcp("position_set", { ticker, qty: Number(qty), avgCost: Number(avgCost), note: flags.note });
+        console.log(`  ${acid(String(r.summary))}`);
+      } else if (sub === "risk") {
+        const r = await mcp("portfolio_risk", {});
+        console.log(`  ${acid(String(r.summary))}`);
+        for (const x of r.data?.positions ?? [])
+          console.log(`  ${bold(String(x.ticker).padEnd(10))} ${money(x.value, x.currency).padEnd(12)} P&L ${money(x.pnl, x.currency)}`);
+        for (const w of r.data?.risk ?? [])
+          if (w.count > 0) console.log(dim(`    ${w.ticker}: ${w.count} dependent(s) within 3 hops in the supply web`));
+      } else {
+        const r = await mcp("position_list", {});
+        console.log(`  ${acid(String(r.summary))}`);
+        for (const x of r.data ?? []) {
+          const dir = x.pnl >= 0 ? acid("▲") : red("▼");
+          console.log(
+            `  ${bold(String(x.ticker).padEnd(10))} ${String(x.qty).padStart(8)} @ ${money(x.avgCost, x.currency).padEnd(10)} → ${money(x.price, x.currency).padEnd(10)} ${dir} ${money(x.pnl, x.currency)} (${Number(x.pnlPct).toFixed(1)}%)`,
+          );
+        }
+      }
       break;
     }
 
@@ -254,9 +311,15 @@ async function mcp(name, args) {
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
   });
   const data = await res.json();
-  const payload = data?.result?.content?.[0]?.text;
+  const result = data?.result;
+  const payload = result?.content?.[0]?.text;
   if (!payload) fail(`MCP call failed: ${JSON.stringify(data).slice(0, 200)}`);
-  return JSON.parse(payload);
+  if (result?.isError) fail(`MCP tool error: ${payload}`);
+  try {
+    return JSON.parse(payload);
+  } catch {
+    return payload;
+  }
 }
 
 function bannerText() {

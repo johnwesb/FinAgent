@@ -1,0 +1,35 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+next-env.d.ts
+
+# local env / secrets
+.env
+.env.*
+*.pem
+
+# falkordb lite runtime state (rdb dumps, unix sockets, bundled bins)
+.data/
+*.rdb
+*.sock
+
+# caches / logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+coverage/
+tsconfig.tsbuildinfo
+
+# editors / os
+.DS_Store
+.zed/
+.idea/
+.vscode/
+
+# demo videos (Demo.mov is 204MB — over GitHub's 100MB file limit)
+*.mov
+*.mp4

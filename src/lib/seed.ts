@@ -11,7 +11,7 @@
 import { db } from "@/db";
 import { agents } from "@/db/schema";
 import { sql } from "drizzle-orm";
-import { graphRun, graphWipe } from "./graph";
+import { graphRun, graphStatus, graphWipe } from "./graph";
 
 const ROSTER = [
   {
@@ -166,8 +166,16 @@ const PROCEDURES = [
 ];
 
 let seedPromise: Promise<void> | null = null;
+let seededMode: string | null = null;
 
-export function ensureSeed(): Promise<void> {
+export async function ensureSeed(): Promise<void> {
+  if (seedPromise) {
+    // The boot ladder can swap graph backends at runtime (LIVE → LITE →
+    // DEGRADED). A seed memoized against the old backend would leave the new
+    // one empty forever — detect the swap and re-run for this backend.
+    const { mode } = await graphStatus();
+    if (mode !== seededMode) seedPromise = null;
+  }
   if (!seedPromise) {
     seedPromise = run().catch((e) => {
       seedPromise = null;
@@ -186,6 +194,7 @@ async function run(): Promise<void> {
 
   // knowledge graph — only seed the active backend if it is empty
   const overview = await graphRun<{ total: number }>("graphOverview");
+  seededMode = overview.mode;
   if ((overview.data?.total ?? 0) > 0) return;
 
   // companies + sectors

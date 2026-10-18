@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { api, usePoll, type QuoteDTO, type StatsDTO } from "@/lib/client";
+import { fmtMoney } from "@/lib/money";
 
 const NAV = [
   { href: "/", label: "Console", icon: LayoutDashboard },
@@ -39,9 +40,11 @@ function Clock() {
 }
 
 function QuoteTicker() {
+  // mirrors the graph universe: every Company node gets a tape entry, and
+  // new ingests appear on the next poll (graph → tape stays in sync).
   const { data } = usePoll<{ quotes: QuoteDTO[] }>(
-    () => api("/api/quotes?tickers=AAPL,NVDA,MSFT,GOOGL,TSM,AMD,AVGO,TSLA"),
-    30_000,
+    () => api("/api/quotes?tickers=graph"),
+    15_000,
   );
   const quotes = data?.quotes ?? [];
   if (quotes.length === 0) {
@@ -51,16 +54,18 @@ function QuoteTicker() {
       </span>
     );
   }
-  const line = quotes
-    .map(
-      (q) =>
-        `${q.ticker} ${q.price.toFixed(2)} ${q.changePct >= 0 ? "▲" : "▼"}${Math.abs(q.changePct).toFixed(2)}%`,
-    )
-    .join("   ///   ");
   return (
     <div className="ticker flex-1 min-w-0">
       <span className="ticker-inner mono text-[10px] tracking-[0.08em]" style={{ color: "var(--dim)" }}>
-        {line}
+        {quotes.map((q, i) => (
+          <React.Fragment key={q.ticker}>
+            {i > 0 && <span style={{ color: "var(--faint)" }}>{"   ///   "}</span>}
+            <span title={`${q.name || q.ticker} · ${fmtMoney(q.price, q.currency)} · ${q.source}`}>
+              {q.ticker} {fmtMoney(q.price, q.currency)} {q.changePct >= 0 ? "▲" : "▼"}
+              {Math.abs(q.changePct).toFixed(2)}%
+            </span>
+          </React.Fragment>
+        ))}
       </span>
     </div>
   );
@@ -143,7 +148,7 @@ export function AppChrome({ children }: { children: React.ReactNode }) {
           </span>
           <span className="sidebar-label hidden lg:block">
             <span className="block font-extrabold tracking-[-0.02em] text-[15px] leading-none">
-              FINQ<span style={{ color: "var(--acid)" }}>//</span>DESK
+              FINQ<span style={{ color: "var(--acid)" }}>{"//"}</span>DESK
             </span>
             <span className="block mono text-[8px] tracking-[0.28em] mt-1" style={{ color: "var(--faint)" }}>
               GRAPH FINANCE OS

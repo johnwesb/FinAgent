@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 export interface AgentDTO {
   id: number;
@@ -52,7 +52,7 @@ export interface StatsDTO {
     byLabel: Record<string, number>;
   };
   ollama: { up: boolean; models: number; base: string };
-  market: { live: boolean };
+  market: { live: boolean; source?: "stooq-delayed" | "yahoo-delayed" | "simulated" };
 }
 
 export interface QuoteDTO {
@@ -60,7 +60,9 @@ export interface QuoteDTO {
   price: number;
   changePct: number;
   ts: number;
-  source: "stooq-delayed" | "simulated";
+  currency?: string;
+  name?: string;
+  source: "stooq-delayed" | "yahoo-delayed" | "simulated";
 }
 
 export interface VizNode {
@@ -121,6 +123,44 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   return data;
 }
 
+const LOCAL_EVENT = "finq:local-storage";
+
+/**
+ * localStorage-backed state that is safe under SSR/hydration
+ * (server snapshot falls back to the default value).
+ */
+export function useLocalState(
+  key: string,
+  initial: string,
+): [string, (v: string) => void] {
+  const subscribe = (onChange: () => void) => {
+    const onLocal = () => onChange();
+    window.addEventListener(LOCAL_EVENT, onLocal);
+    window.addEventListener("storage", onLocal);
+    return () => {
+      window.removeEventListener(LOCAL_EVENT, onLocal);
+      window.removeEventListener("storage", onLocal);
+    };
+  };
+  const read = () => {
+    try {
+      return window.localStorage.getItem(key) ?? initial;
+    } catch {
+      return initial;
+    }
+  };
+  const value = useSyncExternalStore(subscribe, read, () => initial);
+  const write = (v: string) => {
+    try {
+      window.localStorage.setItem(key, v);
+    } catch {
+      /* private mode / quota */
+    }
+    window.dispatchEvent(new Event(LOCAL_EVENT));
+  };
+  return [value, write];
+}
+
 export function usePoll<T>(
   loader: () => Promise<T>,
   ms: number,
@@ -128,7 +168,9 @@ export function usePoll<T>(
 ): { data: T | null; refresh: () => void } {
   const [data, setData] = useState<T | null>(null);
   const loaderRef = useRef(loader);
-  loaderRef.current = loader;
+  useEffect(() => {
+    loaderRef.current = loader;
+  });
   const [tick, setTick] = useState(0);
   useEffect(() => {
     let alive = true;

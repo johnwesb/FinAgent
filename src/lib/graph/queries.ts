@@ -398,16 +398,15 @@ export const CATALOG: Record<string, CatalogEntry> = {
     },
     embedded: async (p, s) => {
       const g = await loadGraph(s, "global");
-      const words = String(p.q)
-        .toLowerCase()
-        .split(/[^\w]+/)
-        .filter((w) => w.length > 2);
+      // parity with the live cypher: wordsOf (len > 3) + minHits threshold,
+      // not a hand-rolled >2 split with any-one-hit matching.
+      const { words, minHits } = wordsOf(p.q);
       const hay = (d: NodeRec) =>
         `${d.props.title ?? ""} ${d.props.rationale ?? ""}`.toLowerCase();
       const out: unknown[] = [];
       for (const d of g.byKey.values()) {
         if (d.label !== "Decision") continue;
-        if (words.length && !words.some((w) => hay(d).includes(w))) continue;
+        if (words.filter((w) => hay(d).includes(w)).length < minHits) continue;
         const sources = (g.out.get(d.id) ?? [])
           .filter((e) => e.type === "DERIVED_FROM")
           .map((e) => g.nodes.get(e.dst)!.props.title);
@@ -442,10 +441,9 @@ export const CATALOG: Record<string, CatalogEntry> = {
     },
     embedded: async (p, s) => {
       const g = await loadGraph(s, "global");
-      const words = String(p.q)
-        .toLowerCase()
-        .split(/[^\w]+/)
-        .filter((w) => w.length > 2);
+      // parity with the live cypher: wordsOf (len > 3) + minHits, and the
+      // haystack concatenates name + title the way coalesce(x.name)+coalesce(x.title) does.
+      const { words, minHits } = wordsOf(p.q);
       const rows: unknown[] = [];
       for (const per of g.byKey.values()) {
         if (per.label !== "Person") continue;
@@ -454,11 +452,8 @@ export const CATALOG: Record<string, CatalogEntry> = {
           const other = g.nodes.get(e.src === per.id ? e.dst : e.src)!;
           if (!["Team", "Project", "Document"].includes(other.label)) continue;
           const thing = String(other.props.name ?? other.props.title ?? "");
-          if (
-            words.length &&
-            !words.some((w) => thing.toLowerCase().includes(w))
-          )
-            continue;
+          const hay = `${other.props.name ?? ""} ${other.props.title ?? ""}`.toLowerCase();
+          if (words.filter((w) => hay.includes(w)).length < minHits) continue;
           rows.push({ person: per.props.name, role: per.props.role, via: e.type, thing });
         }
       }
@@ -553,8 +548,18 @@ export const CATALOG: Record<string, CatalogEntry> = {
           linked.push(ticker);
         }
       }
-      // provenance
-      for (const title of (p.sources as string[] | undefined) ?? []) {
+      // provenance — accept an array or a comma-separated string (never
+      // iterate a raw string char-by-char, which links garbage edges)
+      const rawSources = p.sources;
+      const sourceTitles = Array.isArray(rawSources)
+        ? rawSources.map(String)
+        : rawSources
+          ? String(rawSources)
+              .split(",")
+              .map((t) => t.trim())
+              .filter(Boolean)
+          : [];
+      for (const title of sourceTitles) {
         const doc = [...g.byKey.values()].find(
           (x) => x.label === "Document" && like(x.props.title, title),
         );
@@ -572,16 +577,27 @@ export const CATALOG: Record<string, CatalogEntry> = {
 
   putQuote: {
     desc: "Attach a fresh Quote node to a company, prune to last 40",
-    cypher: (p) => ({
-      text: "MATCH (c:Company {ticker: $ticker}) CREATE (q:Quote {price: $price, changePct: $changePct, ts: $ts, source: $source}) CREATE (c)-[:HAS_QUOTE]->(q) RETURN properties(q) AS row",
-      params: {
-        ticker: LIT(p.ticker),
-        price: p.price,
-        changePct: p.changePct,
-        ts: p.ts,
-        source: p.source,
-      },
-    }),
+    cypher: (p) => {
+      // key mirrors the embedded contract (Quote:TICKER:ts) — without it viz
+      // renders null-keyed nodes and React duplicate-keys the graph page.
+      // ts/price/etc are $-referenced: default them so sanitizeParams can't
+      // drop a key the engine needs.
+      const ts = Number(p.ts ?? Date.now());
+      return {
+        // MERGE, not CREATE: the key is stable per ticker+close-time, so a
+        // second get_quote the same day would otherwise stack duplicate
+        // nodes/edges — and React would duplicate-key the viz again.
+        text: "MATCH (c:Company {ticker: $ticker}) MERGE (q:Quote {key: $key}) SET q.price = $price, q.changePct = $changePct, q.ts = $ts, q.source = $source MERGE (c)-[:HAS_QUOTE]->(q) RETURN properties(q) AS row",
+        params: {
+          ticker: LIT(p.ticker),
+          key: `Quote:${LIT(p.ticker)}:${ts}`,
+          price: Number(p.price ?? 0),
+          changePct: Number(p.changePct ?? 0),
+          ts,
+          source: String(p.source ?? "simulated"),
+        },
+      };
+    },
     embedded: async (p, s) => {
       const c = await s.nodeByKey("global", `Company:${LIT(p.ticker)}`);
       if (!c) return null;
@@ -617,17 +633,24 @@ export const CATALOG: Record<string, CatalogEntry> = {
 
   putEpisode: {
     desc: "Track 2 episodic memory — a message node for a tenant session",
-    cypher: (p) => ({
-      text: "MERGE (e:Episode {key: $key}) ON CREATE SET e = {key: $key, tenant: $tenant, sessionId: $sessionId, role: $role, content: $content, ts: $ts} RETURN properties(e) AS row",
-      params: {
-        key: String(p.key),
-        tenant: String(p.tenant),
-        sessionId: p.sessionId,
-        role: String(p.role),
-        content: String(p.content).slice(0, 4000),
-        ts: p.ts,
-      },
-    }),
+    cypher: (p) => {
+      // sessionId/ts are $-referenced: an undefined would be dropped by
+      // sanitizeParams and the engine rejects unbound params ("Missing
+      // parameters") — which demotes the whole driver. Default them here.
+      const sessionId = Number(p.sessionId ?? 0);
+      const ts = Number(p.ts ?? Date.now());
+      return {
+        text: "MERGE (e:Episode {key: $key}) ON CREATE SET e = {key: $key, tenant: $tenant, sessionId: $sessionId, role: $role, content: $content, ts: $ts} RETURN properties(e) AS row",
+        params: {
+          key: String(p.key),
+          tenant: String(p.tenant),
+          sessionId,
+          role: String(p.role),
+          content: String(p.content).slice(0, 4000),
+          ts,
+        },
+      };
+    },
     embedded: async (p, s) => {
       const n = await s.upsertNode(String(p.tenant), "Episode", String(p.key), {
         sessionId: p.sessionId,
@@ -669,21 +692,26 @@ export const CATALOG: Record<string, CatalogEntry> = {
 
   putMemory: {
     desc: "Semantic/procedural memory upsert, dedupes on text, bumps confidence",
-    cypher: (p) => ({
-      text: "MERGE (m:Memory {key: $key}) ON CREATE SET m = $props, m.confidence = 1 ON MATCH SET m.confidence = m.confidence + 1, m.ts = $ts RETURN properties(m) AS row",
-      params: {
-        key: String(p.key),
-        props: {
+    cypher: (p) => {
+      // $ts is referenced by both SET and MATCH clauses — undefined would be
+      // dropped by sanitizeParams and the engine rejects the whole query.
+      const ts = Number(p.ts ?? Date.now());
+      return {
+        text: "MERGE (m:Memory {key: $key}) ON CREATE SET m = $props, m.confidence = 1 ON MATCH SET m.confidence = m.confidence + 1, m.ts = $ts RETURN properties(m) AS row",
+        params: {
           key: String(p.key),
-          tenant: p.tenant,
-          kind: p.kind,
-          text: p.text,
-          topic: p.topic ?? "",
-          ts: p.ts,
+          props: {
+            key: String(p.key),
+            tenant: p.tenant,
+            kind: p.kind,
+            text: p.text,
+            topic: p.topic ?? "",
+            ts,
+          },
+          ts,
         },
-        ts: p.ts,
-      },
-    }),
+      };
+    },
     embedded: async (p, s) => {
       const existing = await s.nodeByKey(String(p.tenant), String(p.key));
       const conf = existing ? Number(existing.props.confidence ?? 1) + 1 : 1;
@@ -734,8 +762,8 @@ export const CATALOG: Record<string, CatalogEntry> = {
     desc: "All memory for a tenant, optionally by kind",
     cypher: (p) => ({
       text: p.kind
-        ? "MATCH (m:Memory {tenant: $tenant, kind: $kind}) RETURN m AS row ORDER BY m.ts DESC LIMIT 100"
-        : "MATCH (m:Memory {tenant: $tenant}) RETURN m AS row ORDER BY m.ts DESC LIMIT 100",
+        ? "MATCH (m:Memory {tenant: $tenant, kind: $kind}) RETURN properties(m) AS row ORDER BY m.ts DESC LIMIT 100"
+        : "MATCH (m:Memory {tenant: $tenant}) RETURN properties(m) AS row ORDER BY m.ts DESC LIMIT 100",
       params: { tenant: String(p.tenant), kind: p.kind },
     }),
     embedded: async (p, s) => {
@@ -765,10 +793,41 @@ export const CATALOG: Record<string, CatalogEntry> = {
     },
   },
 
+  vizNodes: {
+    desc: "Node sample for the graph explorer (works on live engines + compat store)",
+    cypher: () => ({
+      text: "MATCH (n) RETURN {key: n.key, label: head(labels(n)), props: properties(n)} AS row LIMIT 160",
+      params: {},
+    }),
+    embedded: async (_p, s) => {
+      const nodes = await s.allNodes(null);
+      return nodes.slice(0, 160).map((n) => ({ key: n.key, label: n.label, props: n.props }));
+    },
+  },
+
+  vizEdges: {
+    desc: "Edge sample for the graph explorer (key-addressed)",
+    cypher: () => ({
+      text: "MATCH (a)-[r]->(b) RETURN {from: a.key, to: b.key, type: type(r)} AS row LIMIT 400",
+      params: {},
+    }),
+    embedded: async (_p, s) => {
+      const edges = await s.allEdges(null);
+      const nodes = await s.allNodes(null);
+      const key = new Map(nodes.map((n) => [n.id, n.key]));
+      return edges
+        .slice(0, 400)
+        .map((e) => ({ from: key.get(e.src) ?? "", to: key.get(e.dst) ?? "", type: e.type }));
+    },
+  },
+
   exploreNeighborhood: {
     desc: "Node + its neighbors for the graph explorer",
     cypher: (p) => ({
-      text: "MATCH (n {key: $key}) OPTIONAL MATCH (n)-[r]-(m) WITH n, r, m WHERE m IS NOT NULL RETURN {node: {key: n.key, label: head(labels(n)), props: properties(n)}, edges: collect({type: type(r), dir: CASE WHEN startNode(r).key = n.key THEN 'out' ELSE 'in' END, other: {key: m.key, label: head(labels(m)), props: properties(m)}})} AS row LIMIT 60",
+      // WITH must group ONLY n: `WITH n, r, m` + collect() made FalkorDB
+      // return null for the sibling node map (properties of grouping keys
+      // outside the aggregate go null). Null-guards keep isolated nodes.
+      text: "MATCH (n {key: $key}) OPTIONAL MATCH (n)-[r]-(m) WITH n, collect({type: CASE WHEN r IS NULL THEN null ELSE type(r) END, dir: CASE WHEN r IS NULL THEN 'none' WHEN startNode(r).key = n.key THEN 'out' ELSE 'in' END, other: {key: CASE WHEN m IS NULL THEN null ELSE m.key END, label: CASE WHEN m IS NULL THEN null ELSE head(labels(m)) END, props: CASE WHEN m IS NULL THEN {} ELSE properties(m) END}}) AS edges RETURN {node: {key: n.key, label: head(labels(n)), props: properties(n)}, edges: [e IN edges WHERE e.dir <> 'none']} AS row LIMIT 60",
       params: { key: String(p.key) },
     }),
     embedded: async (p, s) => {
@@ -793,7 +852,7 @@ export const CATALOG: Record<string, CatalogEntry> = {
   upsertCompany: {
     desc: "Write: upsert a company node",
     cypher: (p) => ({
-      text: "MERGE (c:Company {ticker: $ticker}) SET c += $props, c.key: $key RETURN c AS row",
+      text: "MERGE (c:Company {ticker: $ticker}) SET c += $props, c.key = $key RETURN properties(c) AS row",
       params: { ticker: LIT(p.ticker), props: p.props, key: `Company:${LIT(p.ticker)}` },
     }),
     embedded: async (p, s) => {

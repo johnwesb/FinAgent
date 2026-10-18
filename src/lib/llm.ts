@@ -38,6 +38,18 @@ export async function chatText(opts: {
     model,
     temperature: opts.temperature ?? 0.2,
     numPredict: opts.maxTokens ?? 500,
+    // qwen-class thinking models burn the entire numPredict budget on
+    // reasoning (empty output) and cost ~105s on CPU. Off by default;
+    // set LLM_THINK=1 to opt back in.
+    think: process.env.LLM_THINK === "1",
+    // bound wall-clock — a hung/slow model must never stall the desk.
+    fetch: ((input: RequestInfo | URL, init?: RequestInit) =>
+      fetch(input, {
+        ...init,
+        signal:
+          init?.signal ??
+          AbortSignal.timeout(Number(process.env.LLM_TIMEOUT_MS ?? 45_000)),
+      })) as typeof fetch,
   });
   const res = await llm.invoke([
     ["system", opts.system],
@@ -51,8 +63,9 @@ export async function chatJson<T>(opts: {
   system: string;
   prompt: string;
   temperature?: number;
+  maxTokens?: number;
 }): Promise<T> {
-  const raw = await chatText({ ...opts, maxTokens: 800 });
+  const raw = await chatText({ ...opts, maxTokens: opts.maxTokens ?? 800 });
   const start = raw.indexOf("{");
   const end = raw.lastIndexOf("}");
   if (start < 0 || end <= start) throw new Error("no JSON in LLM output");

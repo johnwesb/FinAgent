@@ -1,26 +1,39 @@
 import { graphStatus, graphRun } from "@/lib/graph";
-import { embeddedStore } from "@/lib/graph/embedded";
 import { ensureSeed } from "@/lib/seed";
 
 export const dynamic = "force-dynamic";
 
+interface VizNodeRow {
+  key: string;
+  label: string;
+  props: Record<string, unknown>;
+}
+interface VizEdgeRow {
+  from: string;
+  to: string;
+  type: string;
+}
+
 export async function GET() {
   await ensureSeed();
   const status = await graphStatus();
-  const overview = await graphRun<{
-    byLabel: Record<string, number>;
-    byType: Record<string, number>;
-    total: number;
-    edgeTotal: number;
-  }>("graphOverview");
+  const [overview, nodeSample, edgeSample] = await Promise.all([
+    graphRun<{
+      byLabel: Record<string, number>;
+      byType: Record<string, number>;
+      total: number;
+      edgeTotal: number;
+    }>("graphOverview"),
+    graphRun<VizNodeRow[]>("vizNodes"),
+    graphRun<VizEdgeRow[]>("vizEdges"),
+  ]);
 
-  // viz sample (embedded compatibility mode serves the same shapes)
-  const nodes = (await embeddedStore.allNodes(null)).slice(0, 160);
-  const idSet = new Set(nodes.map((n) => n.id));
-  const edges = (await embeddedStore.allEdges(null))
-    .filter((e) => idSet.has(e.src) && idSet.has(e.dst))
+  // Sample through the graph driver so live FalkorDB engines render too.
+  const nodes = nodeSample.data ?? [];
+  const index = new Map(nodes.map((n, i) => [n.key, i]));
+  const edges = (edgeSample.data ?? [])
+    .filter((e) => index.has(e.from) && index.has(e.to))
     .slice(0, 300);
-  const idToIndex = new Map(nodes.map((n, i) => [n.id, i]));
 
   return Response.json({
     status,
@@ -33,8 +46,8 @@ export async function GET() {
         props: n.props,
       })),
       edges: edges.map((e) => ({
-        from: idToIndex.get(e.src),
-        to: idToIndex.get(e.dst),
+        from: index.get(e.from),
+        to: index.get(e.to),
         type: e.type,
       })),
     },

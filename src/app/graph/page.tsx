@@ -24,14 +24,26 @@ export default function GraphPage() {
 
   const data = overview.data;
   useEffect(() => {
-    if (!selected) {
-      setHood(null);
-      return;
-    }
+    if (!selected) return;
+    let alive = true;
     api<{ result: Neighborhood }>(`/api/graph/explore?key=${encodeURIComponent(selected)}`)
-      .then((r) => setHood(r.result))
-      .catch(() => setHood(null));
+      .then((r) => {
+        if (alive) setHood(r.result);
+      })
+      .catch(() => {
+        if (alive) setHood(null);
+      });
+    return () => {
+      alive = false;
+    };
   }, [selected]);
+
+  // Clear the inspector in the event handler (not an effect) when picking a node.
+  const select = (key: string) => {
+    if (key === selected) return;
+    setSelected(key);
+    setHood(null);
+  };
 
   const nodes = (data?.viz.nodes ?? []).filter(
     (n) =>
@@ -107,7 +119,7 @@ export default function GraphPage() {
           <Panel corners>
             <SectionHead k="Constellation" title="Entities & relationships" right={<GitFork size={13} color="var(--acid)" />} />
             {nodes.length ? (
-              <GraphViz nodes={nodes} edges={edgeIdx} selected={selected} onSelect={setSelected} height={520} />
+              <GraphViz nodes={nodes} edges={edgeIdx} selected={selected} onSelect={select} height={520} />
             ) : (
               <Empty>No nodes match</Empty>
             )}
@@ -150,7 +162,7 @@ export default function GraphPage() {
                     <button
                       key={i}
                       className="w-full text-left flex gap-2 items-center px-2 py-[4px] bg-transparent border-0 cursor-pointer hover:bg-white/[0.03]"
-                      onClick={() => setSelected(e.other.key)}
+                      onClick={() => select(e.other.key)}
                     >
                       <span className="mono text-[9px] w-[92px] truncate flex-none" style={{ color: "var(--violet)" }}>
                         {e.dir === "out" ? "→" : "←"} {e.type}

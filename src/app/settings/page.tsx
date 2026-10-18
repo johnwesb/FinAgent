@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Check, Copy, Database, RefreshCw, TerminalSquare } from "lucide-react";
 import { api, usePoll } from "@/lib/client";
 import { Chip, Panel, SectionHead } from "@/components/ui";
@@ -46,21 +46,19 @@ export default function SettingsPage() {
     () => api("/api/mcp"),
     30000,
   );
-  const [url, setUrl] = useState("");
+  // null until the user edits — until then the saved endpoint renders.
+  const [url, setUrl] = useState<string | null>(null);
+  const endpoint = url ?? settings.data?.falkordb_url ?? "";
   const [saved, setSaved] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const [adminMsg, setAdminMsg] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (settings.data && !url) setUrl(settings.data.falkordb_url);
-  }, [settings.data, url]);
 
   async function save() {
     setErr(null);
     try {
       await api("/api/settings", {
         method: "PUT",
-        body: JSON.stringify({ falkordb_url: url }),
+        body: JSON.stringify({ falkordb_url: endpoint }),
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 1500);
@@ -124,7 +122,7 @@ export default function SettingsPage() {
           <input
             className="input"
             style={{ flex: "1 1 300px" }}
-            value={url}
+            value={endpoint}
             onChange={(e) => setUrl(e.target.value)}
             placeholder="redis://localhost:6379"
           />
@@ -178,7 +176,7 @@ export default function SettingsPage() {
         />
         <div className="flex flex-col gap-2">
           <CodeLine>node cli/finq.js status</CodeLine>
-          <CodeLine>node cli/finq.js ask "If TSMC blows up, who gets hurt?"</CodeLine>
+          <CodeLine>{`node cli/finq.js ask "If TSMC blows up, who gets hurt?"`}</CodeLine>
           <CodeLine>node cli/finq.js quote AAPL NVDA TSM</CodeLine>
           <CodeLine>node cli/finq.js memory --kind procedural</CodeLine>
           <CodeLine>{`node cli/finq.js mcp-call graph_peers '{"ticker":"AAPL"}'`}</CodeLine>

@@ -391,7 +391,7 @@ input[type="range"]::-webkit-slider-thumb {
 .ticker-inner {
   display: inline-block;
   padding-left: 100%;
-  animation: ticker 38s linear infinite;
+  animation: ticker 55s linear infinite;
 }
 @keyframes ticker {
   to { transform: translateX(-100%); }
