@@ -10,9 +10,9 @@
 | Item | Link |
 | --- | --- |
 | Public repository | _https://github.com/johnwesb/FinQDesk.git_ |
-| Demo video | _add link_ |
-| Live deployment | _add link, or "local setup — see SETUP.md"_ |
-| Blog post (side prize) | _add link_ |
+| Demo video | _https://youtu.be/XRfeBuNgYCA_ |
+| Local deployment | _see SETUP.md"_ |
+| Blog post | _https://medium.com/@johnwesleyb.dev/finagent-building-a-graph-centred-autonomous-finance-os-with-falkordb-langgraph-and-mcp-d01de96ff420?sharedUserId=johnwesleyb.dev_ |
 
 ## Required-items checklist (rule 10)
 
