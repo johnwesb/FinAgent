@@ -4,16 +4,16 @@
 > **1 — Agents That Act on Connected Data** · **2 — Agent Memory and
 > Coordination** · **3 — Company Brain**
 
-<img src="https://img.shields.io/badge/Next.js-16.2.6-000000?logo=nextdotjs&logoColor=ffffff" alt="Next.js 16.2.6" />
-<img src="https://img.shields.io/badge/React-19.2.6-61DAFB?logo=react&logoColor=000000" alt="React 19.2.6" />
-<img src="https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript&logoColor=ffffff" alt="TypeScript 5.9.3" />
-<img src="https://img.shields.io/badge/Tailwind-4.1.17-06B6D4?logo=tailwindcss&logoColor=ffffff" alt="Tailwind 4.1.17" />
-<img src="https://img.shields.io/badge/LangGraph-1.5.1-1C3C3C" alt="LangGraph 1.5.1" />
-<img src="https://img.shields.io/badge/MCP-tool%20plane-27B5E8" alt="MCP" />
-<img src="https://img.shields.io/badge/FalkorDB-Cypher-8B7CFF" alt="FalkorDB" />
-<img src="https://img.shields.io/badge/PostgreSQL-14%2B-4169E1?logo=postgresql&logoColor=ffffff" alt="PostgreSQL 14+" />
-<img src="https://img.shields.io/badge/tests-34-4C51BF?logo=vitest&logoColor=ffffff" alt="34 tests" />
-<img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" />
+![Next.js 16.2.6](https://img.shields.io/badge/Next.js-16.2.6-000000?logo=nextdotjs&logoColor=ffffff)
+![React 19.2.6](https://img.shields.io/badge/React-19.2.6-61DAFB?logo=react&logoColor=000000)
+![TypeScript 5.9.3](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript&logoColor=ffffff)
+![Tailwind 4.1.17](https://img.shields.io/badge/Tailwind-4.1.17-06B6D4?logo=tailwindcss&logoColor=ffffff)
+![LangGraph 1.5.1](https://img.shields.io/badge/LangGraph-1.5.1-1C3C3C)
+![MCP](https://img.shields.io/badge/MCP-tool%20plane-27B5E8)
+![FalkorDB](https://img.shields.io/badge/FalkorDB-Cypher-8B7CFF)
+![PostgreSQL 14+](https://img.shields.io/badge/PostgreSQL-14%2B-4169E1?logo=postgresql&logoColor=ffffff)
+![34 tests](https://img.shields.io/badge/tests-34-4C51BF?logo=vitest&logoColor=ffffff)
+![MIT license](https://img.shields.io/badge/license-MIT-green)
 
 **FinQDesk** is a multi-agent financial research desk where a **FalkorDB
 knowledge graph is the shared mind**. Ask *"If TSMC blows up, who gets
@@ -125,7 +125,7 @@ on the clearly-labelled Postgres fallback store. **For the best experience
 (and the intended demo), run the FalkorDB server image — step 2 below.**
 
 ```bash
-git clone https://github.com/johnwesb/FinQDesk.git
+git clone https://github.com/YOUR_GITHUB_USERNAME/FinQDesk.git
 cd FinQDesk
 npm install
 
