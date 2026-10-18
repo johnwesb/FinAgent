@@ -9,7 +9,7 @@
 
 | Item | Link |
 | --- | --- |
-| Public repository | _https://github.com/YOUR_GITHUB_USERNAME/FinQDesk_ |
+| Public repository | _https://github.com/johnwesb/FinQDesk.git_ |
 | Demo video | _add link_ |
 | Live deployment | _add link, or "local setup — see SETUP.md"_ |
 | Blog post (side prize) | _add link_ |

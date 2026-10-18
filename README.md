@@ -125,7 +125,7 @@ on the clearly-labelled Postgres fallback store. **For the best experience
 (and the intended demo), run the FalkorDB server image — step 2 below.**
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/FinQDesk.git
+git clone https://github.com/johnwesb/FinQDesk.git
 cd FinQDesk
 npm install
 

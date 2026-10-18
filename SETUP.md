@@ -38,7 +38,7 @@ everything works without them in clearly-labelled fallback modes.
 ## 2. Get the code and install dependencies
 
 ```bash
-git clone https://github.com/YOUR_GITHUB_USERNAME/FinQDesk.git
+git clone https://github.com/johnwesb/FinQDesk.git
 cd FinQDesk
 npm install
 ```
