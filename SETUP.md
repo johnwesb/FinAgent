@@ -1,9 +1,13 @@
-# FINQ//DESK — Complete Setup Guide
+# FinQDesk — Complete Setup Guide
 
-A FalkorDB-centred, multi-agent financial research desk:
+**FinQDesk** is a FalkorDB-centred, multi-agent financial research desk,
+built for the Graph Hacks hackathon (WeMakeDevs × FalkorDB):
 real-time quotes, multi-hop graph reasoning, persistent agent memory,
 a provenanced company brain, portfolio positions, news and SEC filings.
-LangGraph + LangChain + MCP.
+LangGraph + LangChain + MCP. (The in-app UI brand reads `FINQ//DESK`.)
+
+> Looking for the overview, graph data model and Cypher queries? See
+> [`README.md`](./README.md) and [`docs/GRAPH_MODEL.md`](./docs/GRAPH_MODEL.md).
 
 This guide takes you from zero to a fully verified installation in
 roughly 10 minutes. Sections marked **optional** activate live mode —
@@ -27,13 +31,15 @@ everything works without them in clearly-labelled fallback modes.
 
 - **Node.js ≥ 20.9** and npm (`node -v` to check) — the Next.js 16 requirement
 - **Docker** (easiest path for PostgreSQL and FalkorDB) or native installs
-- Git
+- **Git**
+- **OS:** macOS, Linux, or Windows via **WSL2** (the bootstrap script is
+  Linux x86_64 only; on Windows/macOS use the FalkorDB Docker image in §8)
 
 ## 2. Get the code and install dependencies
 
 ```bash
-git clone <your-repo-url> finq-desk
-cd finq-desk
+git clone https://github.com/YOUR_GITHUB_USERNAME/FinQDesk.git
+cd FinQDesk
 npm install
 ```
 
@@ -339,7 +345,10 @@ curl -s -X POST http://localhost:3000/api/mcp \
 
 ## 14. Tenancy
 
-Every memory node, thread and position is tenant-scoped.
+Every memory node, thread and position is tenant-scoped. Tenancy is
+implemented as a `tenant` property on tenant-owned nodes (`Episode`,
+`Memory`, `Position`) inside the single `finq` graph, and every recall
+query filters on it — so recall never crosses tenants.
 
 - **Web UI:** change the tenant field on the Console (persisted in
   localStorage key `finq-tenant`, isolates threads + memory).
@@ -370,6 +379,9 @@ messages, events, the graph and the roster first.
 | `npm run build` fails type-check | Run `npx next typegen` once, then `npx tsc --noEmit` to see the real error. |
 | Port 3000 busy | `PORT=3001 npm run dev` → set `FINQ_API=http://localhost:3001` for the CLI. |
 | Health check | `curl localhost:3000/api/health` should return `{"ok":true,"service":"agentco"}`. |
+| `npm install` fails on `falkordblite` | Use Node ≥ 20.9 and a supported platform; if it still fails, skip the embedded engine and run the FalkorDB Docker image (§8) — the desk will boot at `FALKORDB LIVE`. |
+| Port 5432 already in use | Another PostgreSQL is running. Stop it, or map Docker to another port (`-p 5433:5432`) and update `DATABASE_URL`. |
+| Windows: `bootstrap-falkordb.sh` won't run | The script is Linux x86_64 only. Use WSL2, or run `docker run -p 6379:6379 falkordb/falkordb:latest`. |
 | Answers feel slow | Expected with a local CPU model: draft + critic ≈ 40–90 s (see §10). Offline LLM is fast; `LLM_THINK=1` is slower still. |
 
 ## 17. Production checklist
@@ -379,4 +391,7 @@ messages, events, the graph and the roster first.
 3. `npx drizzle-kit push` against the production database
 4. Confirm `FALKORDB LIVE` in the status bar and run the step-10 checks
 5. Run the local quality gates: `npm run lint && npm run typecheck && npm test`
-6. Restrict or proxy `/api/admin` if the deployment is shared
+6. Restrict or proxy `/api/admin` if the deployment is shared — it is
+   **unauthenticated by design** for local use (see [`SECURITY.md`](./SECURITY.md))
+7. Put authentication (reverse proxy, SSO, or middleware) in front of the
+   whole app before exposing it to the public internet

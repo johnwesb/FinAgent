@@ -1,6 +1,8 @@
 # Code of Conduct
 
-We want FinAGENT to be a welcoming, harassment-free project for everyone.
+We want FinQDesk to be a welcoming, harassment-free project for everyone.
+This project also follows the WeMakeDevs Code of Conduct for the
+Graph Hacks hackathon.
 
 ## Our standards
 

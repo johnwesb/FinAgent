@@ -1,4 +1,8 @@
-# FINQ//DESK — Graph-Centred Autonomous Finance OS
+# FinQDesk — Graph-Centred Autonomous Finance Desk
+
+> **Graph Hacks 2026 submission** · WeMakeDevs × FalkorDB · Tracks:
+> **1 — Agents That Act on Connected Data** · **2 — Agent Memory and
+> Coordination** · **3 — Company Brain**
 
 <img src="https://img.shields.io/badge/Next.js-16.2.6-000000?logo=nextdotjs&logoColor=ffffff" alt="Next.js 16.2.6" />
 <img src="https://img.shields.io/badge/React-19.2.6-61DAFB?logo=react&logoColor=000000" alt="React 19.2.6" />
@@ -9,22 +13,29 @@
 <img src="https://img.shields.io/badge/FalkorDB-Cypher-8B7CFF" alt="FalkorDB" />
 <img src="https://img.shields.io/badge/PostgreSQL-14%2B-4169E1?logo=postgresql&logoColor=ffffff" alt="PostgreSQL 14+" />
 <img src="https://img.shields.io/badge/tests-34-4C51BF?logo=vitest&logoColor=ffffff" alt="34 tests" />
+<img src="https://img.shields.io/badge/license-MIT-green" alt="MIT license" />
 
-A multi-agent financial research desk built on **Next.js 16 + LangGraph + MCP**,
-where a **knowledge graph is the shared mind**: real-time quotes, multi-hop
-relationship reasoning, persistent per-tenant memory, a provenanced company
-brain, a portfolio book, and news/filings tools — with every figure traced to
-a numbered source and every quote stamped with the feed it came from.
+**FinQDesk** is a multi-agent financial research desk where a **FalkorDB
+knowledge graph is the shared mind**. Ask *"If TSMC blows up, who gets
+hurt?"* and the agents don't guess — they traverse `SUPPLIES` edges in
+FalkorDB, mark your own positions against the blast radius, recall what the
+desk decided last month, and hand back an answer with a **numbered source for
+every figure** and a **reasoning trace of every graph query and tool call**.
+
+- 🎥 **Demo video:** _add link here_
+- 🌐 **Live deployment:** _add link here, or use the local setup below_
+- 📝 **Blog post:** _add link here_ (draft in [`BLOG.md`](./BLOG.md))
 
 ```
-        ┌────────────────── knowledge graph (dual backend) ───────────────────┐
-        │  FalkorDB Cypher (live / lite)   ←→   Postgres compat (degraded)    │
-        │                                                                     │
-        │  Company─COMPETES_WITH─Company    Fund─OWNS→Company                 │
-        │  Company─SUPPLIES*1..3→Company    Position─POSITION_IN→Company      │
-        │  Person─MEMBER_OF─Team            Decision─DERIVED_FROM→Document    │
-        │  Company─HAS_QUOTE→Quote          Memory / Episode (per tenant)     │
-        └─────────────────────────────────────────────────────────────────────┘
+        ┌──────────────── FalkorDB knowledge graph  (graph: "finq") ──────────────┐
+        │                                                                         │
+        │  Company─COMPETES_WITH─Company     Fund─OWNS→Company                    │
+        │  Company─SUPPLIES*1..3→Company     Position─POSITION_IN→Company         │
+        │  Person─MEMBER_OF→Team             Decision─DERIVED_FROM→Document       │
+        │  Company─HAS_QUOTE→Quote           Memory / Episode (per tenant)        │
+        │                                                                         │
+        │  boot ladder:  LIVE server → LITE embedded engine → DEGRADED (labelled) │
+        └─────────────────────────────────────────────────────────────────────────┘
 
   question ─► ORCHESTRA (policy router + optional LLM · symbol resolver)
                 └─► ARCHIVE (recall) ─► [ TICKER | TOPOLOGY | PROVENANCE ]
@@ -32,6 +43,33 @@ a numbered source and every quote stamped with the feed it came from.
                                 └─► ARCHIVE (scribe) ─► answer + sources
                      every specialist call goes through the MCP tool plane
 ```
+
+---
+
+## Why a graph? (and why the graph is not decoration)
+
+Finance questions are about **connections**, not rows:
+
+| Question | What answers it in FinQDesk |
+| --- | --- |
+| Who gets hurt if TSMC fails? | Variable-length traversal `(:Company)-[:SUPPLIES*1..3]->(:Company)` |
+| Which of *my holdings* sit within 3 hops of that risk? | `Position-[:POSITION_IN]->Company` joined onto the same traversal |
+| Why did we overweight NVDA, and from what evidence? | `Decision-[:DERIVED_FROM]->Document`, `Person-[:DECIDED]->Decision` |
+| Who on the desk knows about this topic? | `Person-[r]-(Team|Project|Document)` pattern match |
+| What did we tell this user last week? | Tenant-scoped `Episode` / `Memory` recall **before every answer** |
+
+Remove FalkorDB and none of these have an answer: supply-chain contagion,
+decision provenance, org knowledge, and agent memory all execute as
+**Cypher on the graph**. The full schema and the exact queries are in
+[`docs/GRAPH_MODEL.md`](./docs/GRAPH_MODEL.md).
+
+## How FinQDesk maps to the three Graph Hacks tracks
+
+| Track | What FinQDesk does |
+| --- | --- |
+| **1 · Agents That Act on Connected Data** | Multi-hop risk propagation (`graph_risk_paths`), shortest path between companies (`graph_path`), degree centrality (`graph_centrality`), peers and supply chains — all exposed as **MCP tools** the agent selects from. The agent acts on what the graph shows: it marks your positions against the contagion set (`portfolio_risk`). Every answer carries a reasoning trace + numbered sources. |
+| **2 · Agent Memory and Coordination** | Every turn is scribed as an `Episode` (episodic); facts live as `Memory` nodes (semantic) and desk policies as procedural memory; recall runs **before** every answer. Six specialised agents coordinate through shared graph state in a LangGraph pipeline. Tenancy separates memory, threads and positions per user/desk. |
+| **3 · Company Brain** | People, teams, projects, documents and decisions in one graph. Ingest a document → `MENTIONS` edges to companies. Record a decision → `DERIVED_FROM` its source documents. `brain_decisions` traces a decision back to its sources; `brain_who_knows` finds who owns what. |
 
 ---
 
@@ -45,10 +83,11 @@ a numbered source and every quote stamped with the feed it came from.
 - **22 MCP tools** over one validated tool plane (zod schemas, strict
   argument checking with readable errors) — served both to the engine and to
   external clients at `/api/mcp` (JSON-RPC over HTTP).
-- **Dual-backend graph** — 29 catalog operations implemented **twice, with the
-  same semantics**: Cypher against FalkorDB (live or embedded lite) and a
-  Postgres compatibility executor. The boot ladder degrades loudly, never
-  silently.
+- **FalkorDB-first graph layer** — 29 catalog operations defined as Cypher
+  and run against FalkorDB (live server or the embedded FalkorDBLite engine).
+  Each also has an embedded Postgres implementation used only as a
+  loudly-labelled emergency fallback. The boot ladder degrades loudly,
+  never silently.
 - **Symbol universe resolver** — company names in plain English
   (`"Adani Power"`, `"Tata"`, `"TSMC"`) resolve to canonical exchange symbols
   via graph fast-path → Yahoo search, **new companies auto-ingest** into the
@@ -62,7 +101,7 @@ a numbered source and every quote stamped with the feed it came from.
   Yahoo news headlines, both citation-backed.
 - **Portfolio book** — enter real positions (`position_set`), mark them to
   live prices with P&L, and stress them against the graph's supply web
-  (`portfolio_risk`: “which of my holdings sit within 3 hops of the risk?”).
+  (`portfolio_risk`: "which of my holdings sit within 3 hops of the risk?").
 - **Critic pass** — after the draft, a second LLM call fact-checks every
   figure **against the tool artifacts only**; failures get one rewrite, then
   an explicit `⚠ unverified` annotation. Outcomes are logged as `CRITIC`
@@ -78,40 +117,102 @@ a numbered source and every quote stamped with the feed it came from.
 
 **Prerequisites:** Node.js ≥ 20.9, Git, PostgreSQL ≥ 14
 ([Docker](https://docs.docker.com/get-docker/) is the easiest path).
-Optional: Docker + Redis for a live FalkorDB server,
-[Ollama](https://ollama.com) for the local LLM plane. The embedded graph
-engine (FALKORDB LITE) also needs a `redis-server` binary —
-`brew install redis` on macOS, `./scripts/bootstrap-falkordb.sh` on Linux
-x86_64 — otherwise the desk runs on the clearly-labelled Postgres compat
-store.
+Optional: Docker for a live FalkorDB server, [Ollama](https://ollama.com)
+for the local LLM plane. The embedded graph engine (FalkorDB Lite) also needs
+a `redis-server` binary — `brew install redis` on macOS,
+`./scripts/bootstrap-falkordb.sh` on Linux x86_64 — otherwise the desk runs
+on the clearly-labelled Postgres fallback store. **For the best experience
+(and the intended demo), run the FalkorDB server image — step 2 below.**
 
 ```bash
-git clone <your-repo-url> finq-desk
-cd finq-desk
+git clone https://github.com/YOUR_GITHUB_USERNAME/FinQDesk.git
+cd FinQDesk
 npm install
 
-# 1. database — any PostgreSQL ≥ 14 (Docker example)
+# 1. system database — any PostgreSQL ≥ 14 (Docker example)
 docker run -d --name finq-pg \
   -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=app_db \
   -p 5432:5432 postgres:16
 
-# 2. environment — required value only
+# 2. FalkorDB — the knowledge graph (recommended: boots at FALKORDB LIVE)
+docker run -d --name finq-falkordb -p 6379:6379 falkordb/falkordb:latest
+
+# 3. environment — required value only
 echo 'DATABASE_URL=postgresql://postgres:postgres@127.0.0.1:5432/app_db' > .env
 
-# 3. schema
+# 4. schema
 npx drizzle-kit push          # expect: [✓] Changes applied
 
-# 4. run
+# 5. run
 npm run dev                   # http://localhost:3000
 ```
 
+Open http://localhost:3000 — the status bar should read **`FALKORDB LIVE`**.
 The first request seeds the desk itself: **6 agents, 20 companies** with a
 competition/supply web, funds, sectors, an org brain (people, teams,
 projects, documents, decisions) and desk procedures.
 
-**Full setup guide — including the FalkorDB boot ladder, LLM setup, the
-verification scripts, troubleshooting and a production checklist — lives in
+### Try it in 60 seconds
+
+```bash
+node cli/finq.js status                                   # which graph level you're on
+node cli/finq.js ask "If TSMC blows up, who gets hurt?"   # Track 1: multi-hop
+node cli/finq.js remember "Our NVDA stop-loss is 8% below cost basis"
+node cli/finq.js ask "What do you remember about our NVDA stop-loss?"   # Track 2
+node cli/finq.js ask "Why did we decide to overweight NVDA?"            # Track 3
+node cli/finq.js mcp-call graph_risk_paths '{"ticker":"TSM"}'           # instant, no LLM
+```
+
+No Ollama? Everything still works — the deterministic router and template
+synthesizer answer in seconds. With a local CPU model the first answer takes
+roughly 40–90 s (draft + critic pass).
+
+**Full setup guide — the FalkorDB boot ladder, LLM setup, verification,
+troubleshooting and a production checklist — lives in
 [`SETUP.md`](./SETUP.md).**
+
+---
+
+## Graph data model (summary)
+
+**Nodes:** `Company` · `Sector` · `Fund` · `Person` · `Team` · `Project` ·
+`Document` · `Decision` · `Quote` · `Position` · `Episode` · `Memory`
+
+**Relationships:** `COMPETES_WITH` · `SUPPLIES {component, criticality}` ·
+`IN_SECTOR` · `OWNS {pct}` · `HAS_QUOTE` · `POSITION_IN` · `MEMBER_OF` ·
+`LEADS` · `WORKS_ON` · `OWNED_BY` · `AUTHORED` · `MENTIONS` · `DERIVED_FROM` ·
+`DECIDED`
+
+### Three queries the product depends on
+
+```cypher
+// Track 1 — contagion: who depends on TSMC, up to 3 hops away?
+MATCH path = (sup:Company {ticker: $ticker})-[:SUPPLIES*1..3]->(dependent:Company)
+WITH length(path) AS hops, dependent, path
+RETURN {ticker: dependent.ticker, name: dependent.name, hops: hops,
+        chain: [n IN nodes(path) | n.ticker]} AS row
+ORDER BY hops LIMIT 20
+
+// Track 3 — provenance: which decisions mention a topic, and where did they come from?
+MATCH (d:Decision)
+WHERE size($words) = 0 OR size([w IN $words WHERE toLower(d.title + ' ' + d.rationale) CONTAINS w]) >= $minHits
+OPTIONAL MATCH (d)-[:DERIVED_FROM]->(doc:Document)
+OPTIONAL MATCH (per:Person)-[:DECIDED]->(d)
+OPTIONAL MATCH (d)-[:MENTIONS]->(c:Company)
+WITH d, collect(DISTINCT doc.title) AS sources, collect(DISTINCT per.name) AS deciders,
+     collect(DISTINCT c.ticker) AS tickers
+RETURN {title: d.title, date: d.date, rationale: d.rationale, status: d.status,
+        sources: sources, deciders: deciders, tickers: tickers} AS row
+
+// Track 2 — memory recall, scoped to a tenant, strongest memories first
+MATCH (m:Memory {tenant: $tenant})
+WHERE size($words) = 0 OR size([w IN $words WHERE toLower(m.text + ' ' + m.topic) CONTAINS w]) >= $minHits
+RETURN properties(m) AS row ORDER BY m.confidence DESC, m.ts DESC LIMIT 8
+```
+
+All 29 operations live in [`src/lib/graph/queries.ts`](./src/lib/graph/queries.ts);
+the schema, every relationship, and the rest of the key queries are
+documented in [`docs/GRAPH_MODEL.md`](./docs/GRAPH_MODEL.md).
 
 ---
 
@@ -296,16 +397,20 @@ src/
   db/                        Drizzle schema + client
 tests/                       vitest suites
 SETUP.md                     full setup, verification & troubleshooting guide
+docs/GRAPH_MODEL.md          graph schema + the Cypher the product runs on
+SUBMISSION.md                Graph Hacks submission checklist + demo script
+BLOG.md                      write-up for the best-blog-post side prize
 ```
 
 ---
 
 ## Known limitations (read before demoing to anyone serious)
 
-1. **Graph edges are demo content.** Supply-chain (`SUPPLIES`), competition
-   and org-brain edges ship hand-authored as seed data. The architecture for
-   derived edges exists (and new *nodes* ingest automatically), but edges
-   are not yet mined from filings or news.
+1. **Graph edges are demo content.** Supply-chain (`SUPPLIES`), competition,
+   fund-ownership and org-brain edges ship hand-authored as **synthetic seed
+   data** (allowed by the hackathon rules: public, synthetic, or your own).
+   The architecture for derived edges exists (and new *nodes* ingest
+   automatically), but edges are not yet mined from filings or news.
 2. **EDGAR covers US registrants only.** `get_facts` answers `no SEC
    filings` for non-US names (e.g. `ADANIPOWER.NS`, `TCS.NS`).
 3. **No broker integration.** Positions are entered by you (tool/CLI/chat);
@@ -317,14 +422,24 @@ SETUP.md                     full setup, verification & troubleshooting guide
    silently pass a failure, but it is not a formal proof.
 6. **The embedded lite engine needs a `redis-server` binary.** Linux x86_64
    gets a vendored one from `scripts/bootstrap-falkordb.sh`; macOS needs
-   `brew install redis`. Where none can run, the desk falls back to the
-   Postgres compat store and says so (red `DEGRADED` label). The dual-backend
-   parity is defined in code and exercised by the shared catalog, not by CI
-   on every backend.
-7. **No CI pipeline yet** — the gates above are local commands.
+   `brew install redis`. The recommended path is the FalkorDB Docker image.
+   Where no graph engine can run, the desk falls back to the Postgres
+   compat store and says so (red `DEGRADED` label) — an emergency mode, not
+   the intended deployment. Parity between the two backends is defined in
+   code and exercised by the shared catalog, not by CI on every backend.
+7. **Tenancy is logical, not a security boundary.** Tenants are separated by
+   a `tenant` property inside one graph (`finq`), not by separate graphs, and
+   there is no authentication. Do not expose the app publicly as-is.
+8. **No CI pipeline yet** — the quality gates above are local commands.
+9. **Not financial advice.** FinQDesk is a research tool.
 
-## Docs & license
+## Docs
 
 - **Setup, verification, troubleshooting:** [`SETUP.md`](./SETUP.md)
-- **License:** none specified — no `LICENSE` file exists in this repository
-  yet. Add one before distributing.
+- **Graph schema and Cypher:** [`docs/GRAPH_MODEL.md`](./docs/GRAPH_MODEL.md)
+- **Hackathon submission checklist & demo script:** [`SUBMISSION.md`](./SUBMISSION.md)
+- **Security:** [`SECURITY.md`](./SECURITY.md) · **Conduct:** [`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md)
+
+## License
+
+[MIT](./LICENSE) © 2026 FinQDesk contributors.
