@@ -22,9 +22,8 @@ FalkorDB, mark your own positions against the blast radius, recall what the
 desk decided last month, and hand back an answer with a **numbered source for
 every figure** and a **reasoning trace of every graph query and tool call**.
 
-- 🎥 **Demo video:** _add link here_
-- 🌐 **Live deployment:** _add link here, or use the local setup below_
-- 📝 **Blog post:** _add link here_ (draft in [`BLOG.md`](./BLOG.md))
+- 🎥 **Demo video:** _https://youtu.be/XRfeBuNgYCA_
+- 📝 **Blog post:** _https://medium.com/@johnwesleyb.dev/finagent-building-a-graph-centred-autonomous-finance-os-with-falkordb-langgraph-and-mcp-d01de96ff420?sharedUserId=johnwesleyb.dev_ (draft in [`BLOG.md`](./BLOG.md))
 
 ```
         ┌──────────────── FalkorDB knowledge graph  (graph: "finq") ──────────────┐
